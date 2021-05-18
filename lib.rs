@@ -9,6 +9,11 @@ mod erc20 {
         collections::HashMap as StorageHashMap,
         lazy::Lazy,
     };
+    use ink_prelude::string::String;
+
+
+    pub type Signature = Hash;
+
 
     /// A simple ERC-20 contract.
     #[ink(storage)]
@@ -22,8 +27,13 @@ mod erc20 {
         allowances: StorageHashMap<(AccountId, AccountId), Balance>,
         price: Balance,
         owner:AccountId,
-        contract_balance: Balance
+        contract_balance: Balance,
+        proof_key: StorageHashMap<String, String>,
+
+
     }
+
+            /// index of signatures
 
     /// Event emitted when a token transfer occurs.
     #[ink(event)]
@@ -69,6 +79,8 @@ mod erc20 {
 
     impl Erc20 {
         /// Creates a new ERC-20 contract with the specified initial supply.
+
+        /// parent account will control it 
         #[ink(constructor)]
         pub fn new(initial_supply: Balance, price: Balance, owner: AccountId) -> Self {
             let caller = Self::env().caller();
@@ -80,8 +92,12 @@ mod erc20 {
                 allowances: StorageHashMap::new(),
                 price,
                 owner,
-                contract_balance:0
+                contract_balance:0,
+                // proof_key: Default::default(),
             };
+
+
+
             Self::env().emit_event(Transfer {
                 from: None,
                 to: Some(caller),
@@ -98,8 +114,13 @@ mod erc20 {
 
         #[ink(message)]
         pub fn contract_balance(&self) -> Balance {
-            return self.env().balance()
+            return self.contract_balance
         }
+
+        // #[ink(message)]
+        // pub fn proof(&self, to: AccountId) -> Hash {
+        //     return self.proof_key.get(&to).clone()
+        // }
 
         #[ink(message)]
         pub fn getOwner(&self) -> AccountId {
@@ -138,15 +159,15 @@ mod erc20 {
 
 
         #[ink(message,payable)]
-        pub fn purchase_tickets(&mut self, value: Balance) -> Result<()> {
-            let to = self.env().caller();
+        pub fn purchase_tickets(&mut self,to: AccountId, value: Balance, signature: Hash) -> Result<()> {
+            // self.proof_key.insert(to,signature);
             if self.price != self.env().transferred_balance() {
-                // send money back if this happens 
                 return Err(Error::IncorrectPrice)
+            }else{
+                self.transfer_from_to(self.owner, to, value);
+                self.contract_balance += self.env().transferred_balance();
+                Ok(())
             }
-            self.transfer_from_to(self.owner, to, value);
-            self.contract_balance += self.env().transferred_balance();
-            Ok(())
         }
 
 
@@ -155,16 +176,17 @@ mod erc20 {
         pub fn clear(&mut self, value: Balance) -> Result<()> {
             let check = self.env().caller();
             if check != self.owner {
+                //fix this error
                 return Err(Error::IncorrectPrice)
             }
             self.env().transfer(self.owner,self.contract_balance);
-
             self.contract_balance = 0;
             Ok(()) 
 
         }
 
 
+        // sell function here 
 
 
 
@@ -228,6 +250,21 @@ mod erc20 {
         ///
         /// Returns `InsufficientBalance` error if there are not enough tokens on
         /// the caller's account balance.
+
+
+        /// burn item here
+
+        fn burn(&mut self, from: AccountId, value: Balance) -> Result<()> {
+            let allowance = self.balances.get(&from).copied().unwrap_or(0);
+            if allowance < value {
+                return Err(Error::InsufficientAllowance)
+            }
+            self.balances.insert(from, allowance - value);
+            Ok(())
+        }
+
+
+
 
         fn transfer_from_to(
             &mut self,
